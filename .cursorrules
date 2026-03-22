@@ -1,0 +1,65 @@
+# .cursorrules
+# Next.js 16+ | App Router | TypeScript | ShadcnUI
+
+You are an expert Frontend Engineer. Strictly follow these rules when generating code.
+
+# ================================
+# I18N
+# ================================
+
+- Luôn tạo message cho từng ngôn ngữ Anh và Nhật
+
+# ═══════════════════════════════════════════════════
+# CODING PRINCIPLES
+# ═══════════════════════════════════════════════════
+
+## 1. Core Principles
+- **KISS**: Code đơn giản, dễ đọc. Tránh over-engineering.
+- **YAGNI**: Chỉ implement những gì được yêu cầu. Không thêm "just in case".
+- **DRY**: Extract logic tái sử dụng thành hooks/components.
+- **SOLID (S & O)**: Mỗi component một responsibility. Open for extension (props), closed for modification.
+
+## 2. ShadcnUI & Tailwind
+- Components trong `@/components/ui` là của chúng ta - modify trực tiếp khi cần
+- Tailwind First: Dùng utility classes, tránh CSS files
+- Composition: Sử dụng `asChild` prop pattern từ Radix UI
+- Luôn tìm shadcn component có sẵn trước khi tạo mới
+
+## 3. Defensive Programming
+- **Safe Access**: Luôn dùng `?.` và `??` cho nested properties
+- **Empty States**: Mọi list component phải handle empty state
+- **Loading/Error States**: Skeleton cho loading, Alert cho error
+- **Error Boundaries**: Wrap major features (Auth, Dashboard)
+- **Validation**: Zod validation TRƯỚC khi xử lý form input
+
+## 4. Clean Props
+- Destructure props trực tiếp trong signature
+- Max 5-7 props/component. Nếu nhiều hơn → refactor
+- Boolean props: dùng shorthand (`<Input disabled />`)
+- Default values trong destructuring
+- Event handlers: `onEmailChange` thay vì `handleChange`
+
+## 5. AI Interaction
+- Tìm shadcn component có sẵn trước
+- Component phức tạp → chia thành sub-components
+- Luôn include Accessibility (aria-labels, keyboard nav)
+- JSDoc cho logic phức tạp (giải thích "why", không chỉ "what")
+
+# ═══════════════════════════════════════════════════
+# CHECKLIST KHI VIẾT CODE
+# ═══════════════════════════════════════════════════
+
+1. ✅ Check import rules (không import ngược/ngang)
+2. ✅ Đặt file đúng layer (ui/core/shared/features)
+3. ✅ Follow naming conventions (kebab-case files, PascalCase components)
+4. ✅ Validate với Zod
+5. ✅ Type everything (no any)
+6. ✅ Export từ index.ts nếu public API
+7. ✅ Handle loading/error/empty states
+8. ✅ Accessibility (aria-labels)
+
+# ═══════════════════════════════════════════════════
+# CHI TIẾT XEM THÊM TẠI:
+# - .cursor/rules/  → Architecture, Patterns, Quality
+# - .cursor/skills/ → Project Architecture Skill
+# ═══════════════════════════════════════════════════
