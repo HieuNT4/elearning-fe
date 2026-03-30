@@ -1,6 +1,6 @@
 "use client"
 
-import { BookOpen, CreditCard, LogOut, Users } from "lucide-react"
+import { BookOpen, CreditCard, FolderTree, LogOut, Package, Users } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -23,6 +23,16 @@ const navItems = [
     href: "/admin/courses",
     icon: BookOpen,
   },
+  {
+    title: "Danh mục",
+    href: "/admin/category",
+    icon: FolderTree,
+  },
+    {
+      title: "Combo",
+      href: "/admin/combo",
+      icon: Package,
+    },
   {
     title: "Người dùng",
     href: "/admin/users",

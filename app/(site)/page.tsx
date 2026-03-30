@@ -1,65 +1,137 @@
-import Image from "next/image"
+import type { Metadata } from "next"
 
-export default function Home() {
+import { Banner } from "@/components/layout/banner"
+import type { CategoryItem } from "@/features/category/types"
+import { ComboCatalog } from "@/features/combo/components/combo-catalog"
+import { comboCatalogMessagesVi } from "@/features/combo/messages/combo-catalog"
+import { listPublishedCombos } from "@/features/combo/services/combo-public.service"
+import { CourseCatalog } from "@/features/course/components/course-catalog"
+import type { CourseCatalogItem, CoursePublicItem } from "@/features/course/types"
+import { getApiBaseUrl } from "@/lib/env"
+
+export const metadata: Metadata = {
+  title: "Khóa học",
+  description: "Khám phá khóa học theo danh mục và combo đang mở bán.",
+}
+
+type ApiListResponse<T> = {
+  data?: T[]
+}
+
+const pageMessages = {
+  categoryDescription: "Danh sách khóa học nổi bật và được cập nhật thường xuyên.",
+  emptyCategory: "Danh mục này chưa có khóa học đang mở bán.",
+}
+
+const viCatalogMessages = {
+  gridHeading: "Tất cả khóa học",
+  gridDescription: "Danh sách khóa học nổi bật và được cập nhật thường xuyên.",
+  courseFallbackTitle: "Khóa học",
+  openCourse: "Xem khóa học",
+  bestseller: "Bán chạy",
+  lessonCount: "{count} bài học",
+  lessonsInTitle: "({count} bài)",
+  instructorPrefix: "Giảng viên:",
+  ratingPrefix: "Đánh giá:",
+  outOfFive: "trên 5",
+  reviews: "{count} đánh giá",
+  priceFree: "Miễn phí",
+} as const
+
+function readArray<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[]
+  if (payload && typeof payload === "object") {
+    const data = (payload as ApiListResponse<T>).data
+    if (Array.isArray(data)) return data
+  }
+  return []
+}
+
+function toCatalogItem(course: CoursePublicItem): CourseCatalogItem {
+  return {
+    id: course.id,
+    title: course.title,
+    slug: course.slug,
+    summary: course.summary ?? null,
+    thumbnail: course.thumbnail ?? null,
+    price: course.price ?? 0,
+    oldPrice: course.oldPrice ?? null,
+    createdAt: course.createdAt,
+    lessonCount: 0,
+    instructorName: "N/A",
+    rating: 0,
+    reviewCount: 0,
+    isBestseller: false,
+  }
+}
+
+async function fetchJson<T>(path: string): Promise<T | null> {
+  let apiUrl: string
+  try {
+    apiUrl = getApiBaseUrl()
+  } catch {
+    return null
+  }
+
+  const response = await fetch(`${apiUrl}${path}`, {
+    method: "GET",
+    cache: "no-store",
+  }).catch(() => null)
+
+  if (!response?.ok) return null
+  return (await response.json().catch(() => null)) as T | null
+}
+
+export default async function Home() {
+  const [categoriesPayload, combos] = await Promise.all([
+    fetchJson<unknown>("/categories"),
+    listPublishedCombos({ page: 1, limit: 20, sort: "created_desc" }),
+  ])
+
+  const categories = readArray<CategoryItem>(categoriesPayload)
+
+  const categoryCatalogs = await Promise.all(
+    categories.map(async (category) => {
+      const coursesPayload = await fetchJson<unknown>(
+        `/courses?categoryId=${encodeURIComponent(category.id)}`,
+      )
+      const courses = readArray<CoursePublicItem>(coursesPayload).map(toCatalogItem)
+      return { category, courses }
+    }),
+  )
+
+  const firstCategoryIdWithCourses = categoryCatalogs.find(
+    (row) => row.category && row.courses.length > 0,
+  )?.category?.id
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="Home w-full">
+      <Banner />
+
+      <div className=" w-full px-4 py-10 md:px-6">
+
+        <div className="w-full max-w-[1180px] mx-auto flex flex-col gap-10">
+          {/* <FeedbackTestimonials
+          messages={feedbackTestimonialsMessagesVi}
+          items={mockFeedbackTestimonialsVi}
+        /> */}
+          <ComboCatalog combos={combos} messages={comboCatalogMessagesVi} />
+          {categoryCatalogs.map(({ category, courses }) =>
+            category && courses.length > 0 ? (
+              <CourseCatalog
+                key={category.id}
+                sectionId={category.id === firstCategoryIdWithCourses ? "khoa-hoc" : undefined}
+                messages={{
+                  ...viCatalogMessages,
+                  gridHeading: category.title,
+                  gridDescription: pageMessages.categoryDescription,
+                }}
+                courses={courses}
+              />
+            ) : null,
+          )}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div >
     </div>
   )
 }
