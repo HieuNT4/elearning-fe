@@ -6,6 +6,7 @@ export {
   type UpdateCourseFormData,
 } from "./course.schema"
 export {
+  chapterImportSchema,
   createChapterSchema,
   updateChapterSchema,
   createLessonSchema,
@@ -13,6 +14,7 @@ export {
   createLessonPartSchema,
   updateLessonPartSchema,
   chapterLessonValidationMessages,
+  type ChapterImportFormData,
   type CreateChapterFormData,
   type CreateLessonFormData,
   type CreateLessonPartFormData,

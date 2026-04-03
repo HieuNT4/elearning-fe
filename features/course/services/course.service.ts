@@ -1,9 +1,12 @@
 "use client"
 
+import { getApiErrorMessage } from "@/lib/api/get-api-error-message"
+
 import type {
   AdminCourseListQuery,
   AdminCourseListResponse,
   CourseItem,
+  CourseSort,
   UpsertCoursePayload,
   UpdateCoursePayload,
 } from "../types"
@@ -20,13 +23,11 @@ function toQueryString(query: AdminCourseListQuery): string {
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
-  const data = (await response.json().catch(() => null)) as T | { error?: string } | null
+  const data: unknown = await response.json().catch(() => null)
   if (!response.ok) {
-    const message =
-      typeof data === "object" && data && "error" in data
-        ? (data.error ?? "Request failed")
-        : "Request failed"
-    throw new Error(message)
+    throw new Error(
+      getApiErrorMessage(data, `Request failed (${response.status})`)
+    )
   }
   return data as T
 }
@@ -72,5 +73,26 @@ export const courseService = {
     return fetch(`/api/admin/courses/${id}`, {
       method: "DELETE",
     }).then((response) => parseJson<{ success: boolean }>(response))
+  },
+
+  /**
+   * Loads admin courses for pickers (paginates until done or maxItems).
+   * Uses the same query shape as other admin screens (sort required by some backends).
+   */
+  async listAdminCoursesForPicker(maxItems = 500): Promise<CourseItem[]> {
+    const sort: CourseSort = "created_desc"
+    const limit = 100
+    const merged: CourseItem[] = []
+    let page = 1
+    let totalPages = 1
+    do {
+      const res = await this.listAdminCourses({ page, limit, sort })
+      const batch = res.data ?? []
+      merged.push(...batch)
+      totalPages = Math.max(res.meta?.totalPages ?? 1, 1)
+      if (batch.length < limit) break
+      page += 1
+    } while (page <= totalPages && merged.length < maxItems)
+    return merged.slice(0, maxItems)
   },
 }

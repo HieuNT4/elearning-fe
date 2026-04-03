@@ -7,7 +7,7 @@ export default function AdminUsersPage() {
         Quản lý người dùng
       </h1>
       <p className="text-muted-foreground text-sm leading-normal">
-        Quản lý tài khoản local dành cho admin: tìm kiếm, tạo user mới và bật/tắt active.
+        Tìm kiếm, tạo user, bật/tắt active và gán quyền học khóa (GRANT) theo email qua API admin.
       </p>
       <UserAdminPanel />
     </div>

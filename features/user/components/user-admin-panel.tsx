@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2, Plus, RefreshCcw } from "lucide-react"
+import { BookKey, Loader2, Plus, RefreshCcw } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -22,6 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { UserCourseGrantsDialog } from "@/features/course-grant"
+
 import { CreateUserDialog } from "./create-user-dialog"
 import type { AdminUserItem, AdminUserListQuery, CreateUserPayload } from "../types"
 import { userAdminService } from "../services/user-admin.service"
@@ -92,6 +94,9 @@ export function UserAdminPanel() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createSubmitting, setCreateSubmitting] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+
+  const [grantsDialogOpen, setGrantsDialogOpen] = useState(false)
+  const [grantsDialogEmail, setGrantsDialogEmail] = useState("")
 
   const query = useMemo<AdminUserListQuery>(
     () => ({
@@ -172,7 +177,8 @@ export function UserAdminPanel() {
         <CardHeader>
           <CardTitle>Danh sách người dùng</CardTitle>
           <CardDescription>
-            Quản lý tài khoản local: tìm kiếm, tạo user mới và bật/tắt trạng thái hoạt động.
+            Tìm kiếm, tạo user, bật/tắt active và gán quyền học khóa (GRANT) theo email — không thay thế
+            quyền đã mua (PURCHASE).
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -245,6 +251,7 @@ export function UserAdminPanel() {
                   <TableHead>Tạo lúc</TableHead>
                   <TableHead>Cập nhật</TableHead>
                   <TableHead>Active</TableHead>
+                  <TableHead className="text-right">Quyền học</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -281,6 +288,22 @@ export function UserAdminPanel() {
                           }
                           onCheckedChange={(nextActive) => void handleToggleActive(item, nextActive)}
                         />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isBusy}
+                          aria-label={`Gán quyền học khóa cho ${item.email}`}
+                          onClick={() => {
+                            setGrantsDialogEmail(item.email)
+                            setGrantsDialogOpen(true)
+                          }}
+                        >
+                          <BookKey className="size-4" />
+                          Gán khóa
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )
@@ -323,6 +346,15 @@ export function UserAdminPanel() {
         error={createError}
         onOpenChange={setCreateOpen}
         onSubmit={handleCreateUser}
+      />
+
+      <UserCourseGrantsDialog
+        open={grantsDialogOpen}
+        email={grantsDialogEmail}
+        onOpenChange={(nextOpen) => {
+          setGrantsDialogOpen(nextOpen)
+          if (!nextOpen) setGrantsDialogEmail("")
+        }}
       />
     </div>
   )

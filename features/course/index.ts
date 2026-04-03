@@ -29,7 +29,14 @@ export type {
   UpdateChapterPayload,
   CreateLessonPayload,
   UpdateLessonPayload,
+  ChapterImportPayload,
 } from "./types"
+
+export {
+  courseContentEditorMessages,
+  courseContentEditorMessagesVi,
+  type CourseContentEditorLocale,
+} from "./messages/course-content-editor"
 
 export { catalogMessages, type CatalogLocale, type CatalogMessages } from "./messages/catalog"
 

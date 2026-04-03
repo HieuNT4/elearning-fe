@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Upload,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -45,7 +46,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { courseContentEditorMessagesVi as ccMsg } from "../messages/course-content-editor"
 import { chapterLessonService, courseService } from "../services"
+import { chapterImportSchema } from "../validations/chapter-lesson.schema"
 import type {
   ChapterItem,
   CourseItem,
@@ -83,6 +86,41 @@ const defaultLessonPartForm: LessonPartFormState = {
   isPreview: false,
 }
 
+function makeLocalId(prefix: string): string {
+  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function createEmptyLessonPart(lessonId: string, orderIndex: number): LessonPartItem {
+  return {
+    id: makeLocalId("part"),
+    lessonId,
+    title: "",
+    videoUrl: null,
+    videoType: "youtube",
+    documentUrl: null,
+    orderIndex,
+    isPreview: false,
+    createdAt: "",
+    updatedAt: "",
+  }
+}
+
+function createEmptyLesson(chapterId: string, orderIndex: number): LessonWithParts {
+  const lessonId = makeLocalId("lesson")
+  return {
+    id: lessonId,
+    chapterId,
+    title: "",
+    orderIndex,
+    createdAt: "",
+    updatedAt: "",
+    lessonParts: [createEmptyLessonPart(lessonId, 1)],
+  }
+}
+
 export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
   const router = useRouter()
   const [course, setCourse] = useState<CourseItem | null>(null)
@@ -113,6 +151,10 @@ export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
     defaultLessonPartForm
   )
 
+  const [chapterQuickEdit, setChapterQuickEdit] = useState<Record<string, boolean>>({})
+  const [chapterSnapshots, setChapterSnapshots] = useState<Record<string, ChapterWithLessons>>({})
+  const [importingChapterId, setImportingChapterId] = useState<string | null>(null)
+
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -135,6 +177,8 @@ export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
       )
 
       setChapters(lessonGroups)
+      setChapterQuickEdit({})
+      setChapterSnapshots({})
       setOpenMap((prev) => {
         const next = { ...prev }
         for (const chapter of chapterList) {
@@ -382,6 +426,174 @@ export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
     }
   }
 
+  function updateChapterById(
+    chapterId: string,
+    updater: (c: ChapterWithLessons) => ChapterWithLessons
+  ) {
+    setChapters((prev) => prev.map((c) => (c.id === chapterId ? updater(c) : c)))
+  }
+
+  function beginChapterQuickEdit(chapter: ChapterWithLessons) {
+    setChapterSnapshots((prev) => ({ ...prev, [chapter.id]: structuredClone(chapter) }))
+    setChapterQuickEdit((prev) => ({ ...prev, [chapter.id]: true }))
+    setOpenLessonMap((prev) => {
+      const next = { ...prev }
+      for (const lesson of chapter.lessons) {
+        next[lesson.id] = true
+      }
+      return next
+    })
+  }
+
+  function cancelChapterQuickEdit(chapterId: string) {
+    const snap = chapterSnapshots[chapterId]
+    if (snap) {
+      setChapters((prev) => prev.map((c) => (c.id === chapterId ? snap : c)))
+    }
+    setChapterSnapshots((prev) => {
+      const next = { ...prev }
+      delete next[chapterId]
+      return next
+    })
+    setChapterQuickEdit((prev) => ({ ...prev, [chapterId]: false }))
+  }
+
+  function setChapterTitleInline(chapterId: string, title: string) {
+    updateChapterById(chapterId, (c) => ({ ...c, title }))
+  }
+
+  function setLessonTitleInline(chapterId: string, lessonId: string, title: string) {
+    updateChapterById(chapterId, (c) => ({
+      ...c,
+      lessons: c.lessons.map((l) => (l.id === lessonId ? { ...l, title } : l)),
+    }))
+  }
+
+  function setPartFieldInline(
+    chapterId: string,
+    lessonId: string,
+    partId: string,
+    patch: Partial<
+      Pick<LessonPartItem, "title" | "videoUrl" | "videoType" | "documentUrl" | "isPreview">
+    >
+  ) {
+    updateChapterById(chapterId, (c) => ({
+      ...c,
+      lessons: c.lessons.map((l) =>
+        l.id !== lessonId
+          ? l
+          : {
+              ...l,
+              lessonParts: l.lessonParts.map((p) => (p.id === partId ? { ...p, ...patch } : p)),
+            }
+      ),
+    }))
+  }
+
+  function addLessonRow(chapterId: string) {
+    updateChapterById(chapterId, (c) => {
+      const orderIndex = c.lessons.length + 1
+      return { ...c, lessons: [...c.lessons, createEmptyLesson(c.id, orderIndex)] }
+    })
+  }
+
+  function addPartRow(chapterId: string, lessonId: string) {
+    updateChapterById(chapterId, (c) => ({
+      ...c,
+      lessons: c.lessons.map((l) => {
+        if (l.id !== lessonId) return l
+        const nextOrder = l.lessonParts.length + 1
+        return {
+          ...l,
+          lessonParts: [...l.lessonParts, createEmptyLessonPart(lessonId, nextOrder)],
+        }
+      }),
+    }))
+  }
+
+  function removeLessonRow(chapterId: string, lessonId: string) {
+    const confirmed = window.confirm(ccMsg.removeLessonRow)
+    if (!confirmed) return
+    updateChapterById(chapterId, (c) => ({
+      ...c,
+      lessons: c.lessons
+        .filter((l) => l.id !== lessonId)
+        .map((l, i) => ({ ...l, orderIndex: i + 1 })),
+    }))
+  }
+
+  function removePartRow(chapterId: string, lessonId: string, partId: string) {
+    updateChapterById(chapterId, (c) => ({
+      ...c,
+      lessons: c.lessons.map((l) => {
+        if (l.id !== lessonId) return l
+        if (l.lessonParts.length <= 1) {
+          window.alert(ccMsg.mustKeepOnePart)
+          return l
+        }
+        return {
+          ...l,
+          lessonParts: l.lessonParts
+            .filter((p) => p.id !== partId)
+            .map((p, i) => ({ ...p, orderIndex: i + 1 })),
+        }
+      }),
+    }))
+  }
+
+  async function handleChapterImport(chapterId: string) {
+    const chapter = chapters.find((c) => c.id === chapterId)
+    if (!chapter) return
+
+    const payload = {
+      courseId,
+      chapterOrderIndex: chapter.orderIndex,
+      chapterTitle: chapter.title.trim(),
+      lessons: chapter.lessons.map((lesson, li) => ({
+        title: lesson.title.trim(),
+        orderIndex: li + 1,
+        parts: lesson.lessonParts.map((part, pi) => ({
+          title: part.title.trim(),
+          orderIndex: pi + 1,
+          videoType: part.videoType,
+          videoUrl: part.videoUrl?.trim() || undefined,
+          documentUrl: part.documentUrl?.trim() || undefined,
+          isPreview: part.isPreview,
+        })),
+      })),
+    }
+
+    const parsed = chapterImportSchema.safeParse(payload)
+    if (!parsed.success) {
+      setError(parsed.error.issues.map((issue) => issue.message).join("; "))
+      return
+    }
+
+    const confirmed = window.confirm(ccMsg.importConfirm)
+    if (!confirmed) return
+
+    setImportingChapterId(chapterId)
+    setSaving(true)
+    setError(null)
+    try {
+      await chapterLessonService.importChapter(parsed.data)
+      setChapterQuickEdit((prev) => ({ ...prev, [chapterId]: false }))
+      setChapterSnapshots((prev) => {
+        const next = { ...prev }
+        delete next[chapterId]
+        return next
+      })
+      await loadData()
+    } catch (importErr) {
+      setError(
+        importErr instanceof Error ? importErr.message : "Không thể import chương"
+      )
+    } finally {
+      setImportingChapterId(null)
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="CourseContentEditor flex flex-col gap-4">
       <Card>
@@ -437,6 +649,7 @@ export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
       <div className="grid gap-3">
         {chapters.map((chapter, chapterIndex) => {
           const isChapterOpen = openMap[chapter.id] ?? true
+          const isQuick = chapterQuickEdit[chapter.id] ?? false
 
           return (
             <Card key={chapter.id}>
@@ -447,223 +660,523 @@ export function CourseContentEditor({ courseId }: CourseContentEditorProps) {
                 }
               >
                 <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-base">
-                        Chương {chapterIndex + 1}: {chapter.title}
-                      </CardTitle>
-                      <CardDescription>{chapter.lessons.length} bài học</CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        disabled={saving || chapterIndex === 0}
-                        aria-label={`Đưa chương ${chapter.title} lên trên`}
-                        onClick={() => void handleMoveChapter(chapter.id, "up")}
-                      >
-                        <ArrowUp />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        disabled={saving || chapterIndex === chapters.length - 1}
-                        aria-label={`Đưa chương ${chapter.title} xuống dưới`}
-                        onClick={() => void handleMoveChapter(chapter.id, "down")}
-                      >
-                        <ArrowDown />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        aria-label={`Tạo bài học trong chương ${chapter.title}`}
-                        onClick={() => openCreateLessonDialog(chapter)}
-                      >
-                        <Plus />
-                        Tạo bài học
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        aria-label={`Xóa chương ${chapter.title}`}
-                        onClick={() => void handleDeleteChapter(chapter)}
-                      >
-                        <Trash2 />
-                        Xóa chương
-                      </Button>
-                      <CollapsibleTrigger asChild>
+                  <div className="flex flex-col gap-3">
+                    {isQuick ? (
+                      <p className="text-muted-foreground text-sm leading-normal">{ccMsg.importHint}</p>
+                    ) : null}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        {isQuick ? (
+                          <div className="grid gap-1">
+                            <span className="text-muted-foreground text-xs font-medium">
+                              {ccMsg.chapterTitleLabel}
+                            </span>
+                            <Input
+                              value={chapter.title}
+                              onChange={(event) =>
+                                setChapterTitleInline(chapter.id, event.target.value)
+                              }
+                              disabled={saving || importingChapterId === chapter.id}
+                              aria-label={ccMsg.chapterTitleLabel}
+                              className="max-w-xl"
+                            />
+                            <CardDescription>
+                              {chapter.lessons.length} bài học
+                            </CardDescription>
+                          </div>
+                        ) : (
+                          <>
+                            <CardTitle className="text-base">
+                              Chương {chapterIndex + 1}: {chapter.title}
+                            </CardTitle>
+                            <CardDescription>{chapter.lessons.length} bài học</CardDescription>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {isQuick ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={saving || Boolean(importingChapterId)}
+                              onClick={() => cancelChapterQuickEdit(chapter.id)}
+                            >
+                              {ccMsg.cancelQuickEdit}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={saving || importingChapterId === chapter.id}
+                              aria-label={ccMsg.importChapter}
+                              onClick={() => void handleChapterImport(chapter.id)}
+                            >
+                              {importingChapterId === chapter.id ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <Upload />
+                              )}
+                              {ccMsg.importChapter}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={saving}
+                            aria-label={ccMsg.editChapterTable}
+                            onClick={() => beginChapterQuickEdit(chapter)}
+                          >
+                            <Pencil />
+                            {ccMsg.editChapterTable}
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="outline"
                           size="icon-sm"
-                          aria-label={isChapterOpen ? "Thu gọn chương" : "Mở rộng chương"}
+                          disabled={saving || isQuick || chapterIndex === 0}
+                          aria-label={`Đưa chương ${chapter.title} lên trên`}
+                          onClick={() => void handleMoveChapter(chapter.id, "up")}
                         >
-                          <ChevronDown
-                            className={isChapterOpen ? "transition-transform rotate-180" : "transition-transform"}
-                          />
+                          <ArrowUp />
                         </Button>
-                      </CollapsibleTrigger>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          disabled={saving || isQuick || chapterIndex === chapters.length - 1}
+                          aria-label={`Đưa chương ${chapter.title} xuống dưới`}
+                          onClick={() => void handleMoveChapter(chapter.id, "down")}
+                        >
+                          <ArrowDown />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={saving || isQuick}
+                          aria-label={`Tạo bài học trong chương ${chapter.title}`}
+                          onClick={() => openCreateLessonDialog(chapter)}
+                        >
+                          <Plus />
+                          Tạo bài học
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={saving || isQuick}
+                          aria-label={`Xóa chương ${chapter.title}`}
+                          onClick={() => void handleDeleteChapter(chapter)}
+                        >
+                          <Trash2 />
+                          Xóa chương
+                        </Button>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label={isChapterOpen ? "Thu gọn chương" : "Mở rộng chương"}
+                          >
+                            <ChevronDown
+                              className={
+                                isChapterOpen ? "transition-transform rotate-180" : "transition-transform"
+                              }
+                            />
+                          </Button>
+                        </CollapsibleTrigger>
+                      </div>
                     </div>
                   </div>
                 </CardHeader>
 
                 <CollapsibleContent>
                   <CardContent className="grid gap-4">
-                    {chapter.lessons.length === 0 ? (
+                    {isQuick && chapter.lessons.length === 0 ? (
+                      <div className="flex flex-col items-center gap-3 py-4">
+                        <p className="text-center text-sm text-muted-foreground">
+                          {ccMsg.addAtLeastOneLesson}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={saving}
+                          onClick={() => addLessonRow(chapter.id)}
+                        >
+                          <Plus />
+                          {ccMsg.addLessonRow}
+                        </Button>
+                      </div>
+                    ) : chapter.lessons.length === 0 ? (
                       <div className="text-center text-muted-foreground">
                         Chưa có bài học trong chương này.
                       </div>
                     ) : (
                       <div className="grid gap-4">
-                        {chapter.lessons.map((lesson) => (
-                          <Collapsible
-                            key={lesson.id}
-                            open={openLessonMap[lesson.id] ?? false}
-                            onOpenChange={(nextOpen) => {
-                              setOpenLessonMap((prev) => ({
-                                ...prev,
-                                [lesson.id]: nextOpen,
-                              }))
-                            }}
-                          >
-                            <div className="rounded-xl border bg-card p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <CollapsibleTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon-sm"
-                                        aria-label={
-                                          openLessonMap[lesson.id]
-                                            ? `Thu gọn học phần của ${lesson.title}`
-                                            : `Mở học phần của ${lesson.title}`
-                                        }
-                                        disabled={saving}
-                                      >
-                                        <ChevronDown
-                                          className={
-                                            openLessonMap[lesson.id]
-                                              ? "transition-transform rotate-180"
-                                              : "transition-transform"
+                        {chapter.lessons.map((lesson) => {
+                          const lessonOpen = isQuick || (openLessonMap[lesson.id] ?? false)
+                          return (
+                            <Collapsible
+                              key={lesson.id}
+                              open={lessonOpen}
+                              onOpenChange={(nextOpen) => {
+                                if (isQuick) return
+                                setOpenLessonMap((prev) => ({
+                                  ...prev,
+                                  [lesson.id]: nextOpen,
+                                }))
+                              }}
+                            >
+                              <div className="rounded-xl border bg-card p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start gap-2">
+                                      <CollapsibleTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon-sm"
+                                          className="mt-0.5 shrink-0"
+                                          aria-label={
+                                            lessonOpen
+                                              ? `Thu gọn học phần của ${lesson.title}`
+                                              : `Mở học phần của ${lesson.title}`
                                           }
-                                        />
-                                      </Button>
-                                    </CollapsibleTrigger>
-                                    <div className="text-sm font-semibold leading-snug">
-                                      {lesson.title}
+                                          disabled={saving || isQuick}
+                                        >
+                                          <ChevronDown
+                                            className={
+                                              lessonOpen
+                                                ? "transition-transform rotate-180"
+                                                : "transition-transform"
+                                            }
+                                          />
+                                        </Button>
+                                      </CollapsibleTrigger>
+                                      {isQuick ? (
+                                        <div className="grid min-w-0 flex-1 gap-1">
+                                          <span className="text-muted-foreground text-xs font-medium">
+                                            {ccMsg.lessonTitleLabel}
+                                          </span>
+                                          <Input
+                                            value={lesson.title}
+                                            onChange={(event) =>
+                                              setLessonTitleInline(
+                                                chapter.id,
+                                                lesson.id,
+                                                event.target.value
+                                              )
+                                            }
+                                            disabled={saving || importingChapterId === chapter.id}
+                                            aria-label={ccMsg.lessonTitleLabel}
+                                          />
+                                          <div className="text-xs leading-normal text-muted-foreground">
+                                            {lesson.lessonParts.length} học phần
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="min-w-0">
+                                          <div className="text-sm font-semibold leading-snug">
+                                            {lesson.title}
+                                          </div>
+                                          <div className="text-xs leading-normal text-muted-foreground">
+                                            {lesson.lessonParts.length} học phần
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
-                                  <div className="text-xs leading-normal text-muted-foreground">
-                                    {lesson.lessonParts.length} học phần
+
+                                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                    {isQuick ? (
+                                      <>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          disabled={saving || importingChapterId === chapter.id}
+                                          onClick={() => addPartRow(chapter.id, lesson.id)}
+                                        >
+                                          <Plus />
+                                          {ccMsg.addPartRow}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="destructive"
+                                          disabled={saving || importingChapterId === chapter.id}
+                                          aria-label={ccMsg.removeLessonRow}
+                                          onClick={() => removeLessonRow(chapter.id, lesson.id)}
+                                        >
+                                          <Trash2 />
+                                          {ccMsg.removeLessonRow}
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          type="button"
+                                          size="icon-sm"
+                                          variant="outline"
+                                          aria-label={`Sửa bài học ${lesson.title}`}
+                                          disabled={saving}
+                                          onClick={() => openEditLessonDialog(lesson)}
+                                        >
+                                          <Pencil />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="icon-sm"
+                                          variant="destructive"
+                                          aria-label={`Xóa bài học ${lesson.title}`}
+                                          disabled={saving}
+                                          onClick={() => void handleDeleteLesson(lesson)}
+                                        >
+                                          <Trash2 />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="icon-sm"
+                                          variant="outline"
+                                          aria-label={`Thêm học phần cho bài học ${lesson.title}`}
+                                          disabled={saving}
+                                          onClick={() => openCreateLessonPartDialog(lesson)}
+                                        >
+                                          <Plus />
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    size="icon-sm"
-                                    variant="outline"
-                                    aria-label={`Sửa bài học ${lesson.title}`}
-                                    disabled={saving}
-                                    onClick={() => openEditLessonDialog(lesson)}
-                                  >
-                                    <Pencil />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="icon-sm"
-                                    variant="destructive"
-                                    aria-label={`Xóa bài học ${lesson.title}`}
-                                    disabled={saving}
-                                    onClick={() => void handleDeleteLesson(lesson)}
-                                  >
-                                    <Trash2 />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="icon-sm"
-                                    variant="outline"
-                                    aria-label={`Thêm học phần cho bài học ${lesson.title}`}
-                                    disabled={saving}
-                                    onClick={() => openCreateLessonPartDialog(lesson)}
-                                  >
-                                    <Plus />
-                                  </Button>
-                                </div>
-                              </div>
-
-                              <CollapsibleContent>
-                                <div className="mt-3">
-                                  {lesson.lessonParts.length === 0 ? (
-                                    <div className="text-center text-muted-foreground">
-                                      Chưa có học phần.
-                                    </div>
-                                  ) : (
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Loại video</TableHead>
-                                          <TableHead>Tên học phần</TableHead>
-                                          <TableHead>Tài liệu URL</TableHead>
-                                          <TableHead>Video URL</TableHead>
-                                          <TableHead>Preview</TableHead>
-                                          <TableHead className="text-right">Hành động</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {lesson.lessonParts.map((part) => (
-                                          <TableRow key={part.id}>
-                                            <TableCell>{part.videoType}</TableCell>
-                                            <TableCell className="max-w-[240px] truncate font-medium">
-                                              {part.title}
-                                            </TableCell>
-                                            <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                                              {part.documentUrl ?? "-"}
-                                            </TableCell>
-                                            <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                                              {part.videoUrl ?? "-"}
-                                            </TableCell>
-                                            <TableCell>{part.isPreview ? "Có" : "Không"}</TableCell>
-                                            <TableCell>
-                                              <div className="flex items-center justify-end gap-2">
-                                                <Button
-                                                  type="button"
-                                                  size="icon-sm"
-                                                  variant="outline"
-                                                  aria-label="Sửa học phần"
-                                                  disabled={saving}
-                                                  onClick={() => openEditLessonPartDialog(part)}
-                                                >
-                                                  <Pencil />
-                                                </Button>
-                                                <Button
-                                                  type="button"
-                                                  size="icon-sm"
-                                                  variant="destructive"
-                                                  aria-label="Xóa học phần"
-                                                  disabled={saving}
-                                                  onClick={() => void handleDeleteLessonPart(part)}
-                                                >
-                                                  <Trash2 />
-                                                </Button>
-                                              </div>
-                                            </TableCell>
+                                <CollapsibleContent>
+                                  <div className="mt-3">
+                                    {lesson.lessonParts.length === 0 ? (
+                                      <div className="text-center text-muted-foreground">
+                                        Chưa có học phần.
+                                      </div>
+                                    ) : (
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead>Loại video</TableHead>
+                                            <TableHead>Tên học phần</TableHead>
+                                            <TableHead>Tài liệu URL</TableHead>
+                                            <TableHead>Video URL</TableHead>
+                                            <TableHead>Preview</TableHead>
+                                            <TableHead className="text-right">Hành động</TableHead>
                                           </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  )}
-                                </div>
-                              </CollapsibleContent>
-                            </div>
-                          </Collapsible>
-                        ))}
+                                        </TableHeader>
+                                        <TableBody>
+                                          {lesson.lessonParts.map((part) => (
+                                            <TableRow key={part.id}>
+                                              {isQuick ? (
+                                                <>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <select
+                                                      value={part.videoType}
+                                                      className="h-8 w-full min-w-[96px] rounded-lg border border-input bg-background px-2 text-sm"
+                                                      disabled={
+                                                        saving || importingChapterId === chapter.id
+                                                      }
+                                                      aria-label="Loại video"
+                                                      onChange={(event) =>
+                                                        setPartFieldInline(
+                                                          chapter.id,
+                                                          lesson.id,
+                                                          part.id,
+                                                          {
+                                                            videoType: event.target
+                                                              .value as LessonVideoType,
+                                                          }
+                                                        )
+                                                      }
+                                                    >
+                                                      <option value="youtube">youtube</option>
+                                                      <option value="iframe">iframe</option>
+                                                      <option value="vimeo">vimeo</option>
+                                                    </select>
+                                                  </TableCell>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <Input
+                                                      className="h-8 min-w-[120px]"
+                                                      value={part.title}
+                                                      placeholder={ccMsg.partTitlePlaceholder}
+                                                      disabled={
+                                                        saving || importingChapterId === chapter.id
+                                                      }
+                                                      aria-label={ccMsg.partTitlePlaceholder}
+                                                      onChange={(event) =>
+                                                        setPartFieldInline(
+                                                          chapter.id,
+                                                          lesson.id,
+                                                          part.id,
+                                                          { title: event.target.value }
+                                                        )
+                                                      }
+                                                    />
+                                                  </TableCell>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <Input
+                                                      className="h-8 min-w-[140px]"
+                                                      value={part.documentUrl ?? ""}
+                                                      placeholder={ccMsg.documentUrlPlaceholder}
+                                                      disabled={
+                                                        saving || importingChapterId === chapter.id
+                                                      }
+                                                      aria-label={ccMsg.documentUrlPlaceholder}
+                                                      onChange={(event) =>
+                                                        setPartFieldInline(
+                                                          chapter.id,
+                                                          lesson.id,
+                                                          part.id,
+                                                          {
+                                                            documentUrl:
+                                                              event.target.value || null,
+                                                          }
+                                                        )
+                                                      }
+                                                    />
+                                                  </TableCell>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <Input
+                                                      className="h-8 min-w-[140px]"
+                                                      value={part.videoUrl ?? ""}
+                                                      placeholder={ccMsg.videoUrlPlaceholder}
+                                                      disabled={
+                                                        saving || importingChapterId === chapter.id
+                                                      }
+                                                      aria-label={ccMsg.videoUrlPlaceholder}
+                                                      onChange={(event) =>
+                                                        setPartFieldInline(
+                                                          chapter.id,
+                                                          lesson.id,
+                                                          part.id,
+                                                          {
+                                                            videoUrl: event.target.value || null,
+                                                          }
+                                                        )
+                                                      }
+                                                    />
+                                                  </TableCell>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <div className="flex items-center gap-2 px-1 text-sm">
+                                                      <Switch
+                                                        checked={part.isPreview}
+                                                        disabled={
+                                                          saving || importingChapterId === chapter.id
+                                                        }
+                                                        aria-label={ccMsg.previewLabel}
+                                                        onCheckedChange={(checked) =>
+                                                          setPartFieldInline(
+                                                            chapter.id,
+                                                            lesson.id,
+                                                            part.id,
+                                                            { isPreview: checked }
+                                                          )
+                                                        }
+                                                      />
+                                                      <span className="text-muted-foreground text-xs">
+                                                        {ccMsg.previewLabel}
+                                                      </span>
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="p-1 align-middle">
+                                                    <div className="flex justify-end">
+                                                      <Button
+                                                        type="button"
+                                                        size="icon-sm"
+                                                        variant="destructive"
+                                                        aria-label={ccMsg.removePartRow}
+                                                        disabled={
+                                                          saving || importingChapterId === chapter.id
+                                                        }
+                                                        onClick={() =>
+                                                          removePartRow(
+                                                            chapter.id,
+                                                            lesson.id,
+                                                            part.id
+                                                          )
+                                                        }
+                                                      >
+                                                        <Trash2 />
+                                                      </Button>
+                                                    </div>
+                                                  </TableCell>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <TableCell>{part.videoType}</TableCell>
+                                                  <TableCell className="max-w-[240px] truncate font-medium">
+                                                    {part.title}
+                                                  </TableCell>
+                                                  <TableCell className="max-w-[220px] truncate text-muted-foreground">
+                                                    {part.documentUrl ?? "-"}
+                                                  </TableCell>
+                                                  <TableCell className="max-w-[220px] truncate text-muted-foreground">
+                                                    {part.videoUrl ?? "-"}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    {part.isPreview ? "Có" : "Không"}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <div className="flex items-center justify-end gap-2">
+                                                      <Button
+                                                        type="button"
+                                                        size="icon-sm"
+                                                        variant="outline"
+                                                        aria-label="Sửa học phần"
+                                                        disabled={saving}
+                                                        onClick={() =>
+                                                          openEditLessonPartDialog(part)
+                                                        }
+                                                      >
+                                                        <Pencil />
+                                                      </Button>
+                                                      <Button
+                                                        type="button"
+                                                        size="icon-sm"
+                                                        variant="destructive"
+                                                        aria-label="Xóa học phần"
+                                                        disabled={saving}
+                                                        onClick={() =>
+                                                          void handleDeleteLessonPart(part)
+                                                        }
+                                                      >
+                                                        <Trash2 />
+                                                      </Button>
+                                                    </div>
+                                                  </TableCell>
+                                                </>
+                                              )}
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    )}
+                                  </div>
+                                </CollapsibleContent>
+                              </div>
+                            </Collapsible>
+                          )
+                        })}
+                        {isQuick ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-fit"
+                            disabled={saving || importingChapterId === chapter.id}
+                            onClick={() => addLessonRow(chapter.id)}
+                          >
+                            <Plus />
+                            {ccMsg.addLessonRow}
+                          </Button>
+                        ) : null}
                       </div>
                     )}
                   </CardContent>

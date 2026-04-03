@@ -3,6 +3,7 @@
 import type {
   ChapterDetail,
   ChapterItem,
+  ChapterImportPayload,
   CreateChapterPayload,
   LessonItem,
   LessonPartItem,
@@ -46,6 +47,15 @@ export const chapterLessonService = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((response) => parseJson<ChapterItem>(response))
+  },
+
+  /** POST /chapters/import — creates one new chapter with lessons and parts (transaction). */
+  importChapter(payload: ChapterImportPayload): Promise<unknown> {
+    return fetch("/api/admin/chapters/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((response) => parseJson<unknown>(response))
   },
 
   updateChapter(id: string, payload: UpdateChapterPayload): Promise<ChapterItem> {

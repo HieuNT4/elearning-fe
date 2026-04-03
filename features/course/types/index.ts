@@ -143,4 +143,27 @@ export type CreateLessonPartPayload = {
 
 export type UpdateLessonPartPayload = Partial<CreateLessonPartPayload>
 
+/** Body for POST /chapters/import (admin bulk create chapter + lessons + parts) */
+export type ChapterImportPartPayload = {
+  title: string
+  videoUrl?: string
+  videoType?: LessonVideoType
+  documentUrl?: string
+  isPreview?: boolean
+  orderIndex?: number
+}
+
+export type ChapterImportLessonPayload = {
+  title: string
+  orderIndex?: number
+  parts: ChapterImportPartPayload[]
+}
+
+export type ChapterImportPayload = {
+  courseId: string
+  chapterOrderIndex: number
+  chapterTitle: string
+  lessons: ChapterImportLessonPayload[]
+}
+
 export type { CourseCatalogItem } from "./catalog"
